@@ -853,6 +853,20 @@ void ofApp::keyPressed(int key){
 }
 
 void ofApp::exit() {
+    #ifdef RUN_APP_TESTS
+    // Ensure iostream is available for std::cout, typically via ofMain.h or test_utils.h
+    // and test_utils.h is included in ofApp.h
+    std::cout << "\n\n========================================" << std::endl;
+    std::cout << "        RUNNING APPLICATION TESTS        " << std::endl;
+    std::cout << "========================================" << std::endl;
+    auto test_results = TestUtils::runAllTests();
+    TestUtils::printTestResults(test_results);
+    std::cout << "========================================" << std::endl;
+    std::cout << "          TESTS COMPLETE             " << std::endl;
+    std::cout << "========================================" << std::endl;
+    #endif // RUN_APP_TESTS
+
+	// Original exit code:
 	midiIn.closePort();
 	midiIn.removeListener(this);
 }

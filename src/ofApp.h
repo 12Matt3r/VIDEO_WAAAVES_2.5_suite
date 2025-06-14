@@ -15,7 +15,8 @@
 #include "GuiApp.h"
 #include "ofxNDISender.h"
 #include "ofxNDISendStream.h"
-#include "ofVideoPlayer.h" // Added for video player
+#include "ofVideoPlayer.h"
+#include "test_utils.h" // Added for running tests
 
 class ofApp : public ofBaseApp, public ofxMidiListener {
 
@@ -50,7 +51,7 @@ public:
 
     void tetrahedron_setup();
 
-    float lfo(float amp, float rate,int shape);
+    static float lfo(float amp, float rate,int shape); // Changed to static
 
     void lfo_update();
 
