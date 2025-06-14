@@ -37,10 +37,12 @@ void GuiApp::drawChannelControls(int ch_idx, float lfom) {
         ChannelSettings& cs = channel_settings[ch_idx];
 
         if (ImGui::CollapsingHeader(gen_ui_id("InputSource", ch_idx).c_str(), ImGuiTreeNodeFlags_DefaultOpen)) {
-            const char* items[] = { "Cam 1", "Cam 2", "NDI", "Video File", "Window Capture" };
-            int current_selection = cs.select > 0 ? cs.select -1 : 0;
+            const char* items[] = { "Cam 1", "Cam 2", "NDI", "Video File", "Window Capture", "Noise Generator" };
+            // cs.select is 1-indexed (1=Cam1, 2=Cam2, ..., 6=Noise Generator)
+            // current_selection for ImGui::Combo is 0-indexed
+            int current_selection = (cs.select > 0 && cs.select <= IM_ARRAYSIZE(items)) ? cs.select - 1 : 0;
             if (ImGui::Combo(gen_ui_id("SourceCombo", ch_idx).c_str(), &current_selection, items, IM_ARRAYSIZE(items))) {
-                cs.select = current_selection + 1; // 1-indexed selection
+                cs.select = current_selection + 1; // Update to 1-indexed
             }
              if (ImGui::IsItemHovered()) ImGui::SetTooltip("Select input source for this channel.");
         }
@@ -464,7 +466,258 @@ void GuiApp::drawWindowCaptureControls() {
 
 void GuiApp::drawMoreEffectsControls() {
     if (ImGui::Begin("More Effects", nullptr, ImGuiWindowFlags_None)) {
-        ImGui::Text("Placeholder for more effects controls.");
+        ImGui::PushItemWidth(ImGui::GetWindowWidth() * 0.65f); // Adjust item width for this panel
+
+        if (ImGui::CollapsingHeader("Particle Feedback##PFXHeader", ImGuiTreeNodeFlags_DefaultOpen)) {
+            ImGui::Indent();
+            ParticleFeedbackSettings& pfx_settings = particle_feedback_settings; // Shorter alias
+
+            ImGui::Checkbox(gen_ui_id("EnablePFX", -1, "Cb").c_str(), &pfx_settings.enableParticleFeedback);
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Enable the particle feedback system.");
+
+            ImGui::Separator();
+            ImGui::Text("Spawning");
+            const char* input_sources_pfx[] = { "Main Output", "Cam 1", "Cam 2", "NDI", "Video File", "Window Capture", "Noise Generator" };
+            // pfx_settings.inputSource is 0-indexed (0=MainOutput, 1=Cam1, ..., 6=NoiseGenerator)
+            int current_source_idx_pfx = (pfx_settings.inputSource >= 0 && pfx_settings.inputSource < IM_ARRAYSIZE(input_sources_pfx)) ? pfx_settings.inputSource : 0;
+            if (ImGui::Combo(gen_ui_id("PFXInputSrc", -1, "Cb").c_str(), &current_source_idx_pfx, input_sources_pfx, IM_ARRAYSIZE(input_sources_pfx))) {
+                pfx_settings.inputSource = current_source_idx_pfx;
+            }
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Select the source image for particle generation.");
+
+            ImGui::SliderFloat(gen_ui_id("PFXSpawnThresh", -1, "Sld").c_str(), &pfx_settings.spawnThreshold, 0.0f, 1.0f);
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Brightness threshold (0-1) to spawn particles.");
+
+            ImGui::SliderInt(gen_ui_id("PFXMaxParticles", -1, "SldInt").c_str(), &pfx_settings.maxParticles, 100, 10000);
+             if (ImGui::IsItemHovered()) ImGui::SetTooltip("Maximum number of concurrent particles.");
+            ImGui::Spacing();
+
+            ImGui::Separator();
+            ImGui::Text("Particle Behavior");
+            ImGui::SliderFloat(gen_ui_id("PFXLife", -1, "Sld").c_str(), &pfx_settings.particleInitialLife, 0.1f, 10.0f, "%.2f s");
+             if (ImGui::IsItemHovered()) ImGui::SetTooltip("Initial lifespan of particles in seconds.");
+            ImGui::SliderFloat(gen_ui_id("PFXSpeed", -1, "Sld").c_str(), &pfx_settings.particleInitialSpeed, 0.0f, 200.0f, "%.0f px/s");
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Initial speed of particles in pixels per second.");
+            ImGui::SliderFloat(gen_ui_id("PFXDrag", -1, "Sld").c_str(), &pfx_settings.particleDrag, 0.0f, 0.5f, "%.3f");
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Drag/damping factor applied to particle velocity.");
+            ImGui::SliderFloat(gen_ui_id("PFXSize", -1, "Sld").c_str(), &pfx_settings.particleSize, 0.1f, 20.0f, "%.1f px");
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Size of the particles.");
+
+            ImGui::Checkbox(gen_ui_id("PFXVelFromBright", -1, "Cb").c_str(), &pfx_settings.enableVelocityFromBrightness);
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("If enabled, particle initial speed is scaled by spawn pixel brightness.");
+            ImGui::Spacing();
+
+            ImGui::Separator();
+            ImGui::Text("Particle Appearance");
+            ImGui::Checkbox(gen_ui_id("PFXInheritColor", -1, "Cb").c_str(), &pfx_settings.inheritColorFromSpawn);
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("If enabled, particles inherit color from their spawn pixel. Otherwise, use base color.");
+
+            float color_arr[4] = {
+                pfx_settings.particleBaseColor.r / 255.0f,
+                pfx_settings.particleBaseColor.g / 255.0f,
+                pfx_settings.particleBaseColor.b / 255.0f,
+                pfx_settings.particleBaseColor.a / 255.0f
+            };
+            if (ImGui::ColorEdit4(gen_ui_id("PFXBaseColor", -1, "ClrEdit").c_str(), color_arr)) {
+                pfx_settings.particleBaseColor.set(color_arr[0] * 255, color_arr[1] * 255, color_arr[2] * 255, color_arr[3] * 255);
+            }
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Base color for particles if not inheriting from spawn pixel.");
+            ImGui::Spacing();
+
+            ImGui::Separator();
+            ImGui::Text("Forces & Environment");
+            ImGui::SliderFloat(gen_ui_id("PFXNoiseForce", -1, "Sld").c_str(), &pfx_settings.noiseForceAmount, 0.0f, 100.0f);
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Strength of Perlin noise field affecting particle movement.");
+            ImGui::SliderFloat(gen_ui_id("PFXNoiseScale", -1, "Sld").c_str(), &pfx_settings.noiseFieldScale, 0.001f, 0.1f, "%.4f");
+             if (ImGui::IsItemHovered()) ImGui::SetTooltip("Scale of the noise field (smaller value = larger patterns).");
+            ImGui::SliderFloat(gen_ui_id("PFXNoiseTimeSpd", -1, "Sld").c_str(), &pfx_settings.noiseTimeSpeed, 0.0f, 1.0f);
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("How fast the noise field evolves over time.");
+            ImGui::Spacing();
+
+            ImGui::Separator();
+            ImGui::Text("Blending");
+            ImGui::SliderFloat(gen_ui_id("PFXFeedbackMix", -1, "Sld").c_str(), &pfx_settings.feedbackMix, 0.0f, 1.0f);
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Mix amount when blending particle FBO back to main output (controls trail persistence). 0 = no trails, 1 = infinite trails.");
+
+            ImGui::Unindent();
+        }
+
+        ImGui::Separator();
+
+        if (ImGui::CollapsingHeader("Slit-Scan##SlitScanEffect", ImGuiTreeNodeFlags_DefaultOpen)) {
+            ImGui::Indent();
+            SlitScanSettings& ss_settings = this->slit_scan_settings;
+
+            ImGui::Checkbox(gen_ui_id("EnableSS", -1, "SSCb").c_str(), &ss_settings.enableSlitScan);
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Enable the Slit-Scan effect.");
+
+            ImGui::Separator();
+            ImGui::Text("Source & Slit Configuration");
+
+            const char* input_sources_ss[] = { "Main Output", "Cam 1", "Cam 2", "NDI", "Video File", "Window Capture", "Noise Generator" };
+            // ss_settings.inputSource is 0-indexed (0=MainOutput, 1=Cam1, ..., 6=NoiseGenerator)
+            int current_source_idx_ss = (ss_settings.inputSource >= 0 && ss_settings.inputSource < IM_ARRAYSIZE(input_sources_ss)) ? ss_settings.inputSource : 0;
+            if (ImGui::Combo(gen_ui_id("SSInputSrc", -1, "SSCombo").c_str(), &current_source_idx_ss, input_sources_ss, IM_ARRAYSIZE(input_sources_ss))) {
+                ss_settings.inputSource = current_source_idx_ss;
+            }
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Select the source image for the slit-scan effect.");
+
+            ImGui::SliderInt(gen_ui_id("SSDelayFrames", -1, "SSSliderInt").c_str(), &ss_settings.delayFrames, 0, 120);
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Delay the input source by this many frames before scanning.");
+
+            const char* slit_directions[] = { "Vertical Slit (Scan X-axis)", "Horizontal Slit (Scan Y-axis)" };
+            int current_direction_idx = (ss_settings.slitDirection >= 0 && ss_settings.slitDirection < IM_ARRAYSIZE(slit_directions)) ? ss_settings.slitDirection : 0;
+            if (ImGui::Combo(gen_ui_id("SSDirection", -1, "SSDirCombo").c_str(), &current_direction_idx, slit_directions, IM_ARRAYSIZE(slit_directions))) {
+                ss_settings.slitDirection = current_direction_idx;
+            }
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Direction of the slit: Vertical slit samples a column, Horizontal slit samples a row.");
+
+            ImGui::SliderFloat(gen_ui_id("SSPosition", -1, "SSSliderF").c_str(), &ss_settings.slitPosition, 0.0f, 1.0f, "%.3f");
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Normalized position of the slit across the source image (0.0 to 1.0).");
+
+            ImGui::SliderInt(gen_ui_id("SSThickness", -1, "SSThickSldInt").c_str(), &ss_settings.slitThickness, 1, 100);
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Thickness of the slit in pixels.");
+            ImGui::Spacing();
+
+            ImGui::Separator();
+            ImGui::Text("Accumulation & Output Blending");
+            ImGui::SliderFloat(gen_ui_id("SSAccumSpeed", -1, "SSAccumSldF").c_str(), &ss_settings.accumulationSpeed, -10.0f, 10.0f, "%.1f px/frame");
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("How many pixels the write position in the output moves per frame. Negative values reverse direction.");
+
+            ImGui::Checkbox(gen_ui_id("SSWrapAccum", -1, "SSWrapCb").c_str(), &ss_settings.wrapAccumulation);
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("If the accumulation wraps around the output image edges.");
+
+            ImGui::SliderFloat(gen_ui_id("SSOutputMix", -1, "SSMixSldF").c_str(), &ss_settings.outputMix, 0.0f, 1.0f);
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Blend factor of the slit-scan output when drawing to main scene (0=transparent, 1=opaque).");
+
+            const char* blend_modes_ss[] = { "Alpha Blend", "Additive", "Screen" };
+            int current_blend_idx_ss = (ss_settings.blendMode >= 0 && ss_settings.blendMode < IM_ARRAYSIZE(blend_modes_ss)) ? ss_settings.blendMode : 0;
+            if (ImGui::Combo(gen_ui_id("SSBlendMode", -1, "SSBlendCombo").c_str(), &current_blend_idx_ss, blend_modes_ss, IM_ARRAYSIZE(blend_modes_ss))) {
+                ss_settings.blendMode = current_blend_idx_ss;
+            }
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Blend mode for combining slit-scan output with the main scene.");
+
+            ImGui::Unindent();
+        }
+
+        ImGui::Separator();
+
+        if (ImGui::CollapsingHeader("Noise Generator##NoiseGenEffect", ImGuiTreeNodeFlags_DefaultOpen)) {
+            ImGui::Indent();
+            NoiseGeneratorSettings& ng_settings = this->noise_generator_settings;
+
+            ImGui::Checkbox(gen_ui_id("EnableNoise", -1, "NGCb").c_str(), &ng_settings.enableNoise);
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Enable the Noise Generator. This will make a noise texture available as an input source.");
+
+            ImGui::Separator();
+            ImGui::Text("Noise Parameters");
+
+            ImGui::Text("Type: Perlin (using ofNoise)"); // Placeholder, actual type selection commented out for now
+
+            ImGui::SliderFloat(gen_ui_id("NGScale", -1, "NGSldF").c_str(), &ng_settings.noiseScale, 0.001f, 0.1f, "%.4f");
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Scale of the noise pattern. Smaller values = larger patterns.");
+
+            ImGui::Checkbox(gen_ui_id("NGAnimTime", -1, "NGCb").c_str(), &ng_settings.noiseAnimateTime);
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Automatically animate the 'time' parameter of the noise.");
+            if (ng_settings.noiseAnimateTime) {
+                ImGui::SliderFloat(gen_ui_id("NGSpeed", -1, "NGSldF").c_str(), &ng_settings.noiseSpeed, 0.0f, 1.0f);
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("Speed of time animation for the noise.");
+            } else {
+                ImGui::SliderFloat(gen_ui_id("NGTime", -1, "NGSldF").c_str(), &ng_settings.noiseTime, 0.0f, 1000.0f);
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("Manual 'time' parameter for the noise (Z-axis for 3D noise).");
+            }
+
+            ImGui::SliderInt(gen_ui_id("NGOctaves", -1, "NGSldI").c_str(), &ng_settings.noiseOctaves, 1, 8);
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Number of noise layers (octaves) for detail (requires shader support).");
+            ImGui::SliderFloat(gen_ui_id("NGPersistence", -1, "NGSldF").c_str(), &ng_settings.noisePersistence, 0.0f, 1.0f);
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Persistence of higher octaves (requires shader support).");
+            ImGui::Spacing();
+
+            ImGui::Separator();
+            ImGui::Text("Noise Output Mapping");
+            ImGui::SliderFloat(gen_ui_id("NGRangeMin", -1, "NGSldF").c_str(), &ng_settings.noiseRangeMin, -1.0f, 1.0f);
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Expected minimum output of raw noise function (for remapping to 0-1).");
+            ImGui::SliderFloat(gen_ui_id("NGRangeMax", -1, "NGSldF").c_str(), &ng_settings.noiseRangeMax, -1.0f, 1.0f);
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Expected maximum output of raw noise function (for remapping to 0-1).");
+
+            ImGui::Checkbox(gen_ui_id("NGApplyContrast", -1, "NGCb").c_str(), &ng_settings.noiseApplyContrast);
+            if (ng_settings.noiseApplyContrast) {
+                ImGui::Indent();
+                ImGui::SliderFloat(gen_ui_id("NGContrast", -1, "NGSldF").c_str(), &ng_settings.noiseContrast, 0.1f, 5.0f);
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("Contrast factor. >1 increases, <1 decreases.");
+                ImGui::SliderFloat(gen_ui_id("NGBrightness", -1, "NGSldF").c_str(), &ng_settings.noiseBrightness, -0.5f, 0.5f);
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("Additive brightness adjustment (applied after contrast).");
+                ImGui::Unindent();
+            }
+            ImGui::Spacing();
+
+            ImGui::Checkbox(gen_ui_id("NGColorEnable", -1, "NGCb").c_str(), &ng_settings.noiseColorEnable);
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Enable color mapping for the noise.");
+            if (ng_settings.noiseColorEnable) {
+                ImGui::Indent();
+                // Corrected initialization for color_arr using ng_settings
+                float color1_arr[4] = { ng_settings.noiseColor1.r / 255.0f, ng_settings.noiseColor1.g / 255.0f, ng_settings.noiseColor1.b / 255.0f, ng_settings.noiseColor1.a / 255.0f };
+                if (ImGui::ColorEdit4(gen_ui_id("NGColor1", -1, "NGClr1").c_str(), color1_arr)) {
+                    ng_settings.noiseColor1.set(color1_arr[0] * 255, color1_arr[1] * 255, color1_arr[2] * 255, color1_arr[3] * 255);
+                }
+                // Corrected initialization for color2_arr using ng_settings
+                float color2_arr[4] = { ng_settings.noiseColor2.r / 255.0f, ng_settings.noiseColor2.g / 255.0f, ng_settings.noiseColor2.b / 255.0f, ng_settings.noiseColor2.a / 255.0f };
+                if (ImGui::ColorEdit4(gen_ui_id("NGColor2", -1, "NGClr2").c_str(), color2_arr)) {
+                    ng_settings.noiseColor2.set(color2_arr[0] * 255, color2_arr[1] * 255, color2_arr[2] * 255, color2_arr[3] * 255);
+                }
+                ImGui::Unindent();
+            }
+            ImGui::Unindent();
+        }
+
+        ImGui::Separator();
+
+        if (ImGui::CollapsingHeader("Pixel Sorting##PixelSortEffect", ImGuiTreeNodeFlags_DefaultOpen)) {
+            ImGui::Indent();
+            PixelSortSettings& ps_settings = this->pixel_sort_settings;
+
+            ImGui::Checkbox(gen_ui_id("EnablePS", -1, "PSCb").c_str(), &ps_settings.enablePixelSort);
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Enable the Pixel Sorting effect.");
+
+            ImGui::Separator();
+            ImGui::Text("Configuration");
+
+            const char* input_sources_ps[] = { "Main Output", "Cam 1", "Cam 2", "NDI", "Video File", "Window Capture", "Noise Generator" };
+            int current_source_idx_ps = (ps_settings.inputSource >= 0 && ps_settings.inputSource < IM_ARRAYSIZE(input_sources_ps)) ? ps_settings.inputSource : 0;
+            if (ImGui::Combo(gen_ui_id("PSInputSrc", -1, "PSCmb").c_str(), &current_source_idx_ps, input_sources_ps, IM_ARRAYSIZE(input_sources_ps))) {
+                ps_settings.inputSource = current_source_idx_ps;
+            }
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Select the source image for the pixel sorting effect.");
+
+            const char* sort_modes[] = { "Horizontal Lines", "Vertical Columns" };
+            int current_sort_mode_idx = (ps_settings.sortMode >= 0 && ps_settings.sortMode < IM_ARRAYSIZE(sort_modes)) ? ps_settings.sortMode : 0;
+            if (ImGui::Combo(gen_ui_id("PSSortMode", -1, "PSCmb").c_str(), &current_sort_mode_idx, sort_modes, IM_ARRAYSIZE(sort_modes))) {
+                ps_settings.sortMode = current_sort_mode_idx;
+            }
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Sort pixels along horizontal lines or vertical columns.");
+
+            const char* sort_criteria[] = { "Brightness", "Hue", "Red", "Green", "Blue", "Luminance" };
+            int current_criteria_idx = (ps_settings.sortCriteria >= 0 && ps_settings.sortCriteria < IM_ARRAYSIZE(sort_criteria)) ? ps_settings.sortCriteria : 0;
+            if (ImGui::Combo(gen_ui_id("PSSortCrit", -1, "PSCmb").c_str(), &current_criteria_idx, sort_criteria, IM_ARRAYSIZE(sort_criteria))) {
+                ps_settings.sortCriteria = current_criteria_idx;
+            }
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Metric used for sorting pixels.");
+
+            ImGui::SliderFloat(gen_ui_id("PSThreshMin", -1, "PSSldF").c_str(), &ps_settings.thresholdMin, 0.0f, 1.0f, "%.2f");
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Minimum threshold to start/include pixels in a sortable segment.");
+            ImGui::SliderFloat(gen_ui_id("PSThreshMax", -1, "PSSldF").c_str(), &ps_settings.thresholdMax, 0.0f, 1.0f, "%.2f");
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Maximum threshold to end/include pixels in a sortable segment.");
+
+            ImGui::Checkbox(gen_ui_id("PSSortAsc", -1, "PSCb").c_str(), &ps_settings.sortAscending);
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Sort in ascending order. If unchecked, sorts in descending order.");
+
+            ImGui::SliderFloat(gen_ui_id("PSEffectMix", -1, "PSSldF").c_str(), &ps_settings.effectMix, 0.0f, 1.0f, "%.2f");
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Blend between original (0.0) and sorted (1.0) image.");
+
+            ImGui::Unindent();
+        }
+
+        ImGui::PopItemWidth();
     }
     ImGui::End();
 }

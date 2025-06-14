@@ -248,8 +248,397 @@ void ofApp::setup() {
 
     tetrahedron_setup();
     setupVideoPlayer();
+    setupParticleSystem(); // Added for particle system
     isCapturingWindow = false; currentCaptureTargetIndex = -1; // Init window capture state
+    setupSlitScan();
+    setupNoiseGenerator();
+    setupPixelSort();
 }
+
+// Particle System Method Implementations
+void ofApp::setupParticleSystem() {
+    fbo_particles.allocate(ofGetWidth(), ofGetHeight(), GL_RGBA);
+    fbo_particles.begin();
+    ofClear(0, 0, 0, 0); // Clear with alpha
+    fbo_particles.end();
+}
+
+void ofApp::setupSlitScan() {
+    fbo_slitscan.allocate(ofGetWidth(), ofGetHeight(), GL_RGBA);
+    fbo_slitscan.begin(); ofClear(0,0,0,0); fbo_slitscan.end();
+
+    fbo_slitscan_source_input.allocate(ofGetWidth(), ofGetHeight(), GL_RGBA);
+    fbo_slitscan_source_input.begin(); ofClear(0,0,0,0); fbo_slitscan_source_input.end();
+
+    slitscan_delayed_source_tex.allocate(ofGetWidth(), ofGetHeight(), GL_RGBA);
+    currentSlitScanWritePos = 0;
+}
+
+void ofApp::setupNoiseGenerator() {
+    fbo_noise.allocate(ofGetWidth(), ofGetHeight(), GL_RGBA);
+    fbo_noise.begin(); ofClear(0,0,0,0); fbo_noise.end();
+
+    // Attempt to load shaders, log if error
+    if (!noiseShader.load("shadersGL2/noise.vert", "shadersGL2/noise.frag")) {
+        ofLogError("ofApp::setupNoiseGenerator") << "Could not load noise shader!";
+    }
+}
+
+void ofApp::drawNoiseToFbo() {
+    if (!gui || !noiseShader.isLoaded()) return; // Ensure gui and shader are available
+
+    const auto& settings = gui->noise_generator_settings; // Alias for convenience
+
+    fbo_noise.begin();
+    ofClear(0,0,0,0);
+    noiseShader.begin();
+    noiseShader.setUniform2f("u_resolution", fbo_noise.getWidth(), fbo_noise.getHeight());
+    noiseShader.setUniform1f("u_time", settings.noiseTime);
+    noiseShader.setUniform1f("u_scale", settings.noiseScale);
+    noiseShader.setUniform1i("u_octaves", settings.noiseOctaves);
+    noiseShader.setUniform1f("u_persistence", settings.noisePersistence);
+    noiseShader.setUniform1i("u_colorize", settings.noiseColorEnable ? 1 : 0);
+    noiseShader.setUniform4f("u_color1", settings.noiseColor1.r/255.0f, settings.noiseColor1.g/255.0f, settings.noiseColor1.b/255.0f, settings.noiseColor1.a/255.0f);
+    noiseShader.setUniform4f("u_color2", settings.noiseColor2.r/255.0f, settings.noiseColor2.g/255.0f, settings.noiseColor2.b/255.0f, settings.noiseColor2.a/255.0f);
+    noiseShader.setUniform1f("u_rangeMin", settings.noiseRangeMin);
+    noiseShader.setUniform1f("u_rangeMax", settings.noiseRangeMax);
+    noiseShader.setUniform1i("u_applyContrast", settings.noiseApplyContrast ? 1 : 0);
+    noiseShader.setUniform1f("u_contrast", settings.noiseContrast);
+    noiseShader.setUniform1f("u_brightness", settings.noiseBrightness);
+
+    ofDrawRectangle(0, 0, fbo_noise.getWidth(), fbo_noise.getHeight()); // Draw fullscreen quad
+    noiseShader.end();
+    fbo_noise.end();
+}
+
+void ofApp::updateNoiseGenerator() {
+    if (!gui) return;
+    auto& settings = gui->noise_generator_settings; // Use a reference for direct update
+
+    if (settings.enableNoise) {
+        if (settings.noiseAnimateTime) {
+            settings.noiseTime += settings.noiseSpeed * ofGetLastFrameTime();
+        }
+        drawNoiseToFbo(); // Re-render noise to FBO if enabled and params (or time) changed
+    }
+}
+
+void ofApp::setupPixelSort() {
+    fbo_pixel_sort_output.allocate(ofGetWidth(), ofGetHeight(), GL_RGBA);
+    fbo_pixel_sort_output.begin(); ofClear(0,0,0,0); fbo_pixel_sort_output.end();
+
+    if (!pixelSortShader.load("shadersGL2/pixelsort.vert", "shadersGL2/pixelsort.frag")) {
+        ofLogError("ofApp::setupPixelSort") << "Could not load pixel sort shader!";
+    }
+}
+
+void ofApp::updatePixelSort() {
+    if (!gui || !gui->pixel_sort_settings.enablePixelSort) return;
+    // Currently, all settings are passed as uniforms per frame.
+    // This function could be used if any pre-calculation or state update is needed.
+}
+
+void ofApp::drawPixelSortToFbo(ofTexture& sourceTexture, const GuiApp::PixelSortSettings& settings) {
+    if (!pixelSortShader.isLoaded() || !sourceTexture.isAllocated()) return;
+
+    fbo_pixel_sort_output.begin();
+    ofClear(0,0,0,0);
+    pixelSortShader.begin();
+    pixelSortShader.setUniformTexture("u_tex0", sourceTexture, 0); // Pass source texture
+    pixelSortShader.setUniform2f("u_resolution", sourceTexture.getWidth(), sourceTexture.getHeight());
+    pixelSortShader.setUniform1i("u_sortMode", settings.sortMode);
+    pixelSortShader.setUniform1i("u_sortCriteria", settings.sortCriteria);
+    pixelSortShader.setUniform1f("u_thresholdMin", settings.thresholdMin);
+    pixelSortShader.setUniform1f("u_thresholdMax", settings.thresholdMax);
+    pixelSortShader.setUniform1i("u_sortAscending", settings.sortAscending ? 1 : 0);
+
+    ofSetColor(255);
+    sourceTexture.draw(0, 0, fbo_pixel_sort_output.getWidth(), fbo_pixel_sort_output.getHeight());
+
+    pixelSortShader.end();
+    fbo_pixel_sort_output.end();
+}
+
+void ofApp::prepareSlitScanSourceTexture(const GuiApp::SlitScanSettings& settings) {
+    ofPixels current_frame_pixels;
+    bool source_valid = false;
+
+    // 1. Get current frame from selected source into current_frame_pixels
+    if (settings.inputSource == 0) { // Main Output (use fbo_feedback for previous frame)
+        if (fbo_feedback.isAllocated()) { fbo_feedback.readToPixels(current_frame_pixels); source_valid = true;}
+    } else if (settings.inputSource == 1 && cam1.isInitialized() && cam1.isFrameNew()) {
+        current_frame_pixels = cam1.getPixels(); source_valid = true;
+    } else if (settings.inputSource == 2 && cam2.isInitialized() && cam2.isFrameNew()) {
+        current_frame_pixels = cam2.getPixels(); source_valid = true;
+    } else if (settings.inputSource == 3 && ndi_pixels.isAllocated()) {
+        current_frame_pixels = ndi_pixels; source_valid = true;
+    } else if (settings.inputSource == 4 && videoLoaded && videoPlayer.isLoaded() && videoPlayer.isFrameNew()) {
+        current_frame_pixels = videoPlayer.getPixels(); source_valid = true;
+    } else if (settings.inputSource == 5) { // Window Capture (Placeholder)
+        if (!current_frame_pixels.isAllocated() || current_frame_pixels.getWidth()!=128 || current_frame_pixels.getHeight()!=128) current_frame_pixels.allocate(128,128,OF_PIXELS_RGBA);
+        for(int y_ax=0; y_ax<128; ++y_ax) for(int x_ax=0; x_ax<128; ++x_ax) current_frame_pixels.setColor(x_ax,y_ax,ofColor(ofRandom(255)));
+        source_valid = true;
+    } else if (settings.inputSource == 6) { // Noise Generator
+        if (fbo_noise.isAllocated() && fbo_noise.getTexture().isAllocated()) {
+            // Ensure current_frame_pixels is allocated correctly before reading into it
+            if (!current_frame_pixels.isAllocated() || current_frame_pixels.getWidth() != fbo_noise.getWidth() || current_frame_pixels.getHeight() != fbo_noise.getHeight() || current_frame_pixels.getPixelFormat() != OF_PIXELS_RGBA) {
+                current_frame_pixels.allocate(fbo_noise.getWidth(), fbo_noise.getHeight(), OF_PIXELS_RGBA); // Assuming RGBA for noise FBO
+            }
+            fbo_noise.getTexture().readToPixels(current_frame_pixels);
+            source_valid = true;
+        }
+    }
+
+    if (!source_valid || !current_frame_pixels.isAllocated() || current_frame_pixels.getWidth() == 0) {
+        if(!current_frame_pixels.isAllocated() || current_frame_pixels.getWidth() != ofGetWidth() || current_frame_pixels.getHeight() != ofGetHeight()) current_frame_pixels.allocate(ofGetWidth(), ofGetHeight(), OF_PIXELS_RGBA);
+        current_frame_pixels.setColor(ofColor::black);
+    }
+    if (current_frame_pixels.getNumChannels() == 3) current_frame_pixels.setNumChannels(4);
+
+    if (settings.delayFrames > 0) {
+        slitscan_delay_buffer_pixels.push_back(current_frame_pixels);
+        while (slitscan_delay_buffer_pixels.size() > static_cast<size_t>(settings.delayFrames)) {
+            slitscan_delay_buffer_pixels.pop_front();
+        }
+        if (!slitscan_delay_buffer_pixels.empty() && slitscan_delay_buffer_pixels.front().isAllocated()) {
+            if (slitscan_delayed_source_tex.getWidth() != slitscan_delay_buffer_pixels.front().getWidth() ||
+                slitscan_delayed_source_tex.getHeight() != slitscan_delay_buffer_pixels.front().getHeight() ||
+                slitscan_delayed_source_tex.getTextureData().glInternalFormat != GL_RGBA) {
+                slitscan_delayed_source_tex.allocate(slitscan_delay_buffer_pixels.front().getWidth(), slitscan_delay_buffer_pixels.front().getHeight(), GL_RGBA);
+            }
+            slitscan_delayed_source_tex.loadData(slitscan_delay_buffer_pixels.front());
+        } else {
+            if (current_frame_pixels.isAllocated()) {
+                 if (slitscan_delayed_source_tex.getWidth() != current_frame_pixels.getWidth() ||
+                     slitscan_delayed_source_tex.getHeight() != current_frame_pixels.getHeight() ||
+                     slitscan_delayed_source_tex.getTextureData().glInternalFormat != GL_RGBA) {
+                      slitscan_delayed_source_tex.allocate(current_frame_pixels.getWidth(), current_frame_pixels.getHeight(), GL_RGBA);
+                 }
+                 slitscan_delayed_source_tex.loadData(current_frame_pixels);
+            } else {
+                if (!slitscan_delayed_source_tex.isAllocated() || slitscan_delayed_source_tex.getWidth() != ofGetWidth() || slitscan_delayed_source_tex.getHeight() != ofGetHeight()) {
+                    slitscan_delayed_source_tex.allocate(ofGetWidth(), ofGetHeight(), GL_RGBA);
+                }
+                ofPixels tempClearPix; tempClearPix.allocate(slitscan_delayed_source_tex.getWidth(), slitscan_delayed_source_tex.getHeight(), OF_PIXELS_RGBA);
+                tempClearPix.setColor(ofColor::black);
+                slitscan_delayed_source_tex.loadData(tempClearPix);
+            }
+        }
+    } else {
+        if (current_frame_pixels.isAllocated()) {
+            if (slitscan_delayed_source_tex.getWidth() != current_frame_pixels.getWidth() ||
+                slitscan_delayed_source_tex.getHeight() != current_frame_pixels.getHeight() ||
+                slitscan_delayed_source_tex.getTextureData().glInternalFormat != GL_RGBA) {
+                 slitscan_delayed_source_tex.allocate(current_frame_pixels.getWidth(), current_frame_pixels.getHeight(), GL_RGBA);
+            }
+            slitscan_delayed_source_tex.loadData(current_frame_pixels);
+        } else {
+            if (!slitscan_delayed_source_tex.isAllocated() || slitscan_delayed_source_tex.getWidth() != ofGetWidth() || slitscan_delayed_source_tex.getHeight() != ofGetHeight()) {
+                 slitscan_delayed_source_tex.allocate(ofGetWidth(), ofGetHeight(), GL_RGBA);
+            }
+            ofPixels tempClearPix; tempClearPix.allocate(slitscan_delayed_source_tex.getWidth(), slitscan_delayed_source_tex.getHeight(), OF_PIXELS_RGBA);
+            tempClearPix.setColor(ofColor::black);
+            slitscan_delayed_source_tex.loadData(tempClearPix);
+        }
+    }
+
+    fbo_slitscan_source_input.begin();
+    ofClear(0,0,0,0);
+    if(slitscan_delayed_source_tex.isAllocated()) slitscan_delayed_source_tex.draw(0,0, fbo_slitscan_source_input.getWidth(), fbo_slitscan_source_input.getHeight());
+    fbo_slitscan_source_input.end();
+}
+
+void ofApp::getInputSourcePixels(int source_id, const GuiApp::ParticleFeedbackSettings& settings) {
+    int readWidth = ofGetWidth();
+    int readHeight = ofGetHeight();
+    bool success = false;
+
+    if (source_id == 0) { // Main Output (use fbo_feedback for previous frame's state)
+        if (fbo_feedback.isAllocated()) {
+            readWidth = fbo_feedback.getWidth(); readHeight = fbo_feedback.getHeight();
+            if (!inputSourcePixels.isAllocated() || inputSourcePixels.getWidth() != readWidth || inputSourcePixels.getHeight() != readHeight || inputSourcePixels.getPixelFormat() != fbo_feedback.getTexture().getTextureData().pixelFormat) {
+                inputSourcePixels.allocate(readWidth, readHeight, fbo_feedback.getTexture().getTextureData().glInternalFormat == GL_RGBA ? OF_PIXELS_RGBA : OF_PIXELS_RGB);
+            }
+            fbo_feedback.readToPixels(inputSourcePixels);
+            success = true;
+        } else if (fbo_draw.isAllocated()) { // Fallback to current fbo_draw (less ideal for feedback source)
+            readWidth = fbo_draw.getWidth(); readHeight = fbo_draw.getHeight();
+            if (!inputSourcePixels.isAllocated() || inputSourcePixels.getWidth() != readWidth || inputSourcePixels.getHeight() != readHeight || inputSourcePixels.getPixelFormat() != fbo_draw.getTexture().getTextureData().pixelFormat) {
+                inputSourcePixels.allocate(readWidth, readHeight, fbo_draw.getTexture().getTextureData().glInternalFormat == GL_RGBA ? OF_PIXELS_RGBA : OF_PIXELS_RGB);
+            }
+            fbo_draw.readToPixels(inputSourcePixels);
+            success = true;
+        }
+    } else if (source_id == 1 && cam1.isInitialized()) {
+        if(cam1.isFrameNew() || !inputSourcePixels.isAllocated() || inputSourcePixels.getWidth() != cam1.getWidth() || inputSourcePixels.getHeight() != cam1.getHeight()) {
+             if (cam1.getPixels().isAllocated()) {
+                inputSourcePixels = cam1.getPixels();
+                // inputSourcePixels.setNumChannels(cam1.getPixels().getNumChannels()); // Not needed if assigning directly
+                success = true;
+             }
+        } else if (inputSourcePixels.isAllocated()) { success = true; } // Use existing if no new frame
+    } else if (source_id == 2 && cam2.isInitialized()) {
+        if(cam2.isFrameNew() || !inputSourcePixels.isAllocated() || inputSourcePixels.getWidth() != cam2.getWidth() || inputSourcePixels.getHeight() != cam2.getHeight()) {
+            if (cam2.getPixels().isAllocated()) {
+                inputSourcePixels = cam2.getPixels();
+                // inputSourcePixels.setNumChannels(cam2.getPixels().getNumChannels());
+                success = true;
+            }
+        } else if (inputSourcePixels.isAllocated()) { success = true; }
+    } else if (source_id == 3 && ndi_pixels.isAllocated()) {
+        inputSourcePixels = ndi_pixels;
+        success = true;
+    } else if (source_id == 4 && videoLoaded && videoPlayer.isLoaded() && videoPlayer.isAllocated()) {
+        if(videoPlayer.isFrameNew() || !inputSourcePixels.isAllocated() || inputSourcePixels.getWidth() != videoPlayer.getWidth() || inputSourcePixels.getHeight() != videoPlayer.getHeight()) {
+            if (videoPlayer.getPixels().isAllocated()) {
+                inputSourcePixels = videoPlayer.getPixels();
+                // inputSourcePixels.setNumChannels(videoPlayer.getPixels().getNumChannels());
+                success = true;
+            }
+        } else if (inputSourcePixels.isAllocated()) { success = true; }
+    } else if (source_id == 5) { // Window Capture (Placeholder - generates random noise for now)
+        readWidth = 128; readHeight = 128;
+        if (!inputSourcePixels.isAllocated() || inputSourcePixels.getWidth() != readWidth || inputSourcePixels.getHeight() != readHeight) {
+            inputSourcePixels.allocate(readWidth, readHeight, OF_PIXELS_RGBA);
+        }
+        for (int y_ax = 0; y_ax < inputSourcePixels.getHeight(); ++y_ax) {
+            for (int x_ax = 0; x_ax < inputSourcePixels.getWidth(); ++x_ax) {
+                inputSourcePixels.setColor(x_ax, y_ax, ofColor(ofRandom(255), ofRandom(255), ofRandom(255), 255));
+            }
+        }
+        success = true;
+    } else if (source_id == 6) { // Noise Generator
+        if (fbo_noise.isAllocated()) {
+            readWidth = fbo_noise.getWidth(); readHeight = fbo_noise.getHeight();
+            if (!inputSourcePixels.isAllocated() || inputSourcePixels.getWidth() != readWidth || inputSourcePixels.getHeight() != readHeight ||
+                (fbo_noise.getTexture().getTextureData().glInternalFormat == GL_RGBA && inputSourcePixels.getPixelFormat() != OF_PIXELS_RGBA) ||
+                (fbo_noise.getTexture().getTextureData().glInternalFormat != GL_RGBA && inputSourcePixels.getPixelFormat() != OF_PIXELS_RGB) ) {
+                inputSourcePixels.allocate(readWidth, readHeight, fbo_noise.getTexture().getTextureData().glInternalFormat == GL_RGBA ? OF_PIXELS_RGBA : OF_PIXELS_RGB);
+            }
+            fbo_noise.readToPixels(inputSourcePixels);
+            success = true;
+        }
+    }
+
+    if (!success || !inputSourcePixels.isAllocated() || inputSourcePixels.getWidth() == 0 || inputSourcePixels.getHeight() == 0) {
+        readWidth = ofGetWidth(); readHeight = ofGetHeight();
+        if (!inputSourcePixels.isAllocated() || inputSourcePixels.getWidth() != readWidth || inputSourcePixels.getHeight() != readHeight) {
+           inputSourcePixels.allocate(readWidth, readHeight, OF_PIXELS_RGBA);
+        }
+        inputSourcePixels.setColor(ofColor::black);
+    }
+}
+
+void ofApp::spawnParticles(const GuiApp::ParticleFeedbackSettings& settings) {
+    if (!inputSourcePixels.isAllocated() || inputSourcePixels.getWidth() == 0) return;
+
+    float targetFrameRate = ofGetTargetFrameRate();
+    if (targetFrameRate <= 0) targetFrameRate = 60.0f; // Default if target is 0 or unlimited
+
+    float spawn_rate_per_second = settings.particleInitialLife > 0.01f ? (settings.maxParticles / settings.particleInitialLife) : (settings.maxParticles / 0.01f) ;
+    int num_to_spawn_this_frame = static_cast<int>(spawn_rate_per_second / targetFrameRate);
+
+    if (num_to_spawn_this_frame < 1 && settings.maxParticles > 0) { // Probabilistic spawn for low rates
+        if (ofRandom(1.0f) < (spawn_rate_per_second / targetFrameRate)) {
+            num_to_spawn_this_frame = 1;
+        }
+    }
+    if (settings.maxParticles == 0) num_to_spawn_this_frame = 0;
+
+
+    for (int i = 0; i < num_to_spawn_this_frame; ++i) {
+        if (particles.size() >= static_cast<size_t>(settings.maxParticles)) break;
+
+        int sx = (int)ofRandom(inputSourcePixels.getWidth());
+        int sy = (int)ofRandom(inputSourcePixels.getHeight());
+        ofColor spawn_color = inputSourcePixels.getColor(sx, sy);
+        float brightness = spawn_color.getBrightnessNormalized();
+
+        if (brightness > settings.spawnThreshold) {
+            Particle p;
+            p.pos.set(ofMap(sx, 0, inputSourcePixels.getWidth() -1, 0, ofGetWidth()),
+                      ofMap(sy, 0, inputSourcePixels.getHeight()-1, 0, ofGetHeight()));
+
+            float angle = ofRandom(OF_TWO_PI);
+            float speed = settings.particleInitialSpeed;
+            if (settings.enableVelocityFromBrightness) {
+                speed *= (0.1f + brightness * 0.9f);
+            }
+            p.vel.set(cos(angle) * speed, sin(angle) * speed);
+
+            p.initialLife = settings.particleInitialLife > 0.01f ? settings.particleInitialLife : 0.01f;
+            p.life = p.initialLife;
+            p.size = settings.particleSize > 0.0f ? settings.particleSize : 1.0f;
+            p.color = settings.inheritColorFromSpawn ? spawn_color : settings.particleBaseColor;
+            p.color.a = 255;
+            particles.push_back(p);
+        }
+    }
+}
+
+void ofApp::updateParticleSystem(const GuiApp::ParticleFeedbackSettings& settings) {
+    if (!gui) return;
+    getInputSourcePixels(settings.inputSource, settings);
+
+    if (settings.enableParticleFeedback) {
+      spawnParticles(settings);
+    }
+
+    float dt = ofGetLastFrameTime();
+    if (dt <= 0 || dt > 0.2f) dt = 1.0f / 60.0f;
+
+    for (auto it = particles.begin(); it != particles.end(); ) {
+        it->life -= dt;
+        if (it->life <= 0) {
+            it = particles.erase(it);
+        } else {
+            if (settings.noiseForceAmount > 0) {
+                float noise_val_x = ofSignedNoise(it->pos.x * settings.noiseFieldScale, it->pos.y * settings.noiseFieldScale, ofGetElapsedTimef() * settings.noiseTimeSpeed);
+                float noise_val_y = ofSignedNoise(it->pos.y * settings.noiseFieldScale, it->pos.x * settings.noiseFieldScale, ofGetElapsedTimef() * settings.noiseTimeSpeed + 10.0);
+                it->vel.x += noise_val_x * settings.noiseForceAmount * dt;
+                it->vel.y += noise_val_y * settings.noiseForceAmount * dt;
+            }
+
+            // Apply drag more consistently regardless of framerate
+            float dragFactor = 1.0f - (settings.particleDrag * dt * 60.0f); // Assuming drag is "per 1/60th second"
+            if (dragFactor < 0) dragFactor = 0; // Don't reverse velocity
+            it->vel *= dragFactor;
+            it->pos += it->vel * dt;
+
+            // Screen wrap
+            if (it->pos.x < 0) it->pos.x += ofGetWidth(); else if (it->pos.x >= ofGetWidth()) it->pos.x -= ofGetWidth();
+            if (it->pos.y < 0) it->pos.y += ofGetHeight(); else if (it->pos.y >= ofGetHeight()) it->pos.y -= ofGetHeight();
+
+            ++it;
+        }
+    }
+}
+
+void ofApp::drawParticlesToFbo(const GuiApp::ParticleFeedbackSettings& settings) {
+    fbo_particles.begin();
+    ofEnableAlphaBlending();
+
+    float dt = ofGetLastFrameTime();
+    if (dt <= 0 || dt > 0.2f) dt = 1.0f / 60.0f;
+
+    float fade_per_second_alpha = (1.0f - settings.feedbackMix) * 255.0f;
+    float fade_this_frame_alpha = fade_per_second_alpha * dt;
+    fade_this_frame_alpha = ofClamp(fade_this_frame_alpha, 0, 255);
+
+    ofSetColor(0, 0, 0, (int)fade_this_frame_alpha);
+    ofDrawRectangle(0, 0, fbo_particles.getWidth(), fbo_particles.getHeight());
+
+    for (auto& p : particles) {
+        float particle_alpha_norm = ofMap(p.life, 0, p.initialLife, 0, 1.0, true);
+        ofColor c = p.color;
+        c.a = particle_alpha_norm * 255;
+        ofSetColor(c);
+        ofDrawCircle(p.pos, p.size);
+    }
+    ofDisableAlphaBlending();
+    fbo_particles.end();
+}
+
 
 void ofApp::update() {
     cam1.update(); cam2.update();
@@ -263,6 +652,30 @@ void ofApp::update() {
 
     handleWindowCaptureEvents();
     updateWindowCaptureData();
+
+    if (gui && gui->particle_feedback_settings.enableParticleFeedback) {
+        updateParticleSystem(gui->particle_feedback_settings);
+    } else if (particles.size() > 0) {
+        particles.clear();
+        if(fbo_particles.isAllocated()){ // Ensure fbo is allocated before clearing
+            fbo_particles.begin();
+            ofClear(0,0,0,0);
+            fbo_particles.end();
+        }
+    }
+
+    if (gui && gui->slit_scan_settings.enableSlitScan) {
+        prepareSlitScanSourceTexture(gui->slit_scan_settings);
+        updateSlitScan(gui->slit_scan_settings);
+    } else {
+        // Optional: Clear slit-scan FBO or reset position when disabled
+        // fbo_slitscan.begin(); ofClear(0,0,0,0); fbo_slitscan.end();
+        // currentSlitScanWritePos = 0;
+        // slitscan_delay_buffer_pixels.clear(); // Clear delay buffer
+    }
+
+    updateNoiseGenerator();
+    updatePixelSort();
 
     if(gui && gui->global_settings.framebuffer_clear_trigger){
         for(int i=0;i<fbob_const;i++){ pastFrames[i].begin(); ofClear(0,0,0,255); pastFrames[i].end(); }
@@ -487,6 +900,32 @@ void ofApp::draw() {
 
     shader_mixer.end();
 
+    // DRAW PARTICLES (if enabled)
+    if (gui && gui->particle_feedback_settings.enableParticleFeedback && fbo_particles.isAllocated()) {
+        drawParticlesToFbo(gui->particle_feedback_settings);
+
+        ofEnableBlendMode(OF_BLENDMODE_ALPHA);
+        ofSetColor(255);
+        fbo_particles.draw(0, 0);
+        ofDisableBlendMode();
+    }
+
+    // DRAW SLIT-SCAN (if enabled)
+    if (gui && gui->slit_scan_settings.enableSlitScan) {
+        drawSlitScanToFbo(gui->slit_scan_settings);
+
+        if (fbo_slitscan.isAllocated()){
+            if (gui->slit_scan_settings.blendMode == 1) ofEnableBlendMode(OF_BLENDMODE_ADD);
+            else if (gui->slit_scan_settings.blendMode == 2) ofEnableBlendMode(OF_BLENDMODE_SCREEN);
+            else ofEnableAlphaBlending();
+
+            ofSetColor(255, 255, 255, (int)(gui->slit_scan_settings.outputMix * 255.0f) );
+            fbo_slitscan.draw(0, 0, fbo_draw.getWidth(), fbo_draw.getHeight());
+            ofDisableBlendMode();
+            ofEnableAlphaBlending();
+        }
+    }
+
     if(gui->global_settings.hypercube_switch){ hypercube_draw(); }
     if(gui->global_settings.tetrahedron_switch){
         ofSetColor(127+127*(sin(ofGetElapsedTimef())),127+127*(cos(ofGetElapsedTimef()/7)),127-127*(sin(ofGetElapsedTimef()/19)),255);
@@ -502,6 +941,63 @@ void ofApp::draw() {
     fbo_draw.end();
 
     fbo_blur.begin();
+    // Before drawing to fbo_blur, fbo_draw contains the scene possibly with particles and slit-scan.
+    // This is where Pixel Sorting should be applied if its input is "Main Output".
+    if (gui && gui->pixel_sort_settings.enablePixelSort && pixelSortShader.isLoaded()) {
+        bool sort_main_output = (gui->pixel_sort_settings.inputSource == 0);
+        ofTexture* texToProcess = nullptr;
+
+        if (sort_main_output) {
+            if (fbo_draw.isAllocated()) texToProcess = &fbo_draw.getTexture();
+        } else {
+            if (gui->pixel_sort_settings.inputSource == 1 && cam1.isTextureAllocated()) texToProcess = &cam1.getTexture();
+            else if (gui->pixel_sort_settings.inputSource == 2 && cam2.isTextureAllocated()) texToProcess = &cam2.getTexture();
+            else if (gui->pixel_sort_settings.inputSource == 3 && ndi_fbo.isAllocated()) texToProcess = &ndi_fbo.getTexture();
+            else if (gui->pixel_sort_settings.inputSource == 4 && videoLoaded && videoPlayer.isLoaded() && videoPlayer.getTexture().isAllocated()) texToProcess = &videoPlayer.getTexture();
+            // Skipping placeholder for window capture (source 5) for direct texture processing
+            else if (gui->pixel_sort_settings.inputSource == 6 && fbo_noise.isAllocated()) texToProcess = &fbo_noise.getTexture();
+        }
+
+        if (texToProcess) {
+            static ofFbo fbo_temp_ps_source; // Used if fbo_draw is the source, to avoid read/write conflict & for mixing
+
+            if (sort_main_output) { // Source is fbo_draw
+                if (!fbo_temp_ps_source.isAllocated() || fbo_temp_ps_source.getWidth() != texToProcess->getWidth() || fbo_temp_ps_source.getHeight() != texToProcess->getHeight()) {
+                    ofFbo::Settings s;
+                    s.width = texToProcess->getWidth();
+                    s.height = texToProcess->getHeight();
+                    s.internalformat = GL_RGBA;
+                    fbo_temp_ps_source.allocate(s);
+                }
+                fbo_temp_ps_source.begin();
+                ofClear(0,0,0,0);
+                texToProcess->draw(0,0); // Copy fbo_draw content to temp
+                fbo_temp_ps_source.end();
+                drawPixelSortToFbo(fbo_temp_ps_source.getTexture(), gui->pixel_sort_settings); // Sort from temp
+            } else { // Source is not fbo_draw
+                drawPixelSortToFbo(*texToProcess, gui->pixel_sort_settings); // Sort directly from other source
+            }
+
+            // Blend the result from fbo_pixel_sort_output into fbo_draw
+            fbo_draw.begin();
+            if (sort_main_output) { // Mix original (from fbo_temp_ps_source) and sorted (from fbo_pixel_sort_output)
+                ofEnableBlendMode(OF_BLENDMODE_ALPHA);
+                ofSetColor(255, 255, 255, (int)((1.0 - gui->pixel_sort_settings.effectMix) * 255.0f));
+                fbo_temp_ps_source.draw(0,0);
+                ofSetColor(255, 255, 255, (int)(gui->pixel_sort_settings.effectMix * 255.0f));
+                fbo_pixel_sort_output.draw(0,0);
+                ofDisableBlendMode();
+            } else { // Blend sorted effect (from fbo_pixel_sort_output) on top of whatever is in fbo_draw
+                ofEnableBlendMode(OF_BLENDMODE_ALPHA);
+                ofSetColor(255, 255, 255, (int)(gui->pixel_sort_settings.effectMix * 255.0f));
+                fbo_pixel_sort_output.draw(0,0);
+                ofDisableBlendMode();
+            }
+            fbo_draw.end();
+        }
+    }
+    // Now fbo_draw contains the (potentially) pixel-sorted image, ready for blur/sharpen
+
     shader_blur.begin();
     fbo_draw.draw(0,0);
     if(gui->global_settings.global_texmod_select==0){ shader_blur.setUniformTexture("texmod",cam1.getTexture(),8); }
@@ -559,6 +1055,56 @@ float ofApp::lfo(float amp, float rate,int shape){
 }
 
 //--------------------------------------------------------------
+
+void ofApp::updateSlitScan(const GuiApp::SlitScanSettings& settings) {
+    float speed = settings.accumulationSpeed;
+    currentSlitScanWritePos += static_cast<int>(speed);
+
+    int max_pos = (settings.slitDirection == 0) ? static_cast<int>(fbo_slitscan.getWidth()) : static_cast<int>(fbo_slitscan.getHeight());
+    int thickness = settings.slitThickness > 0 ? settings.slitThickness : 1;
+
+    if (settings.wrapAccumulation) {
+        if (max_pos > 0) {
+           if (currentSlitScanWritePos < 0) currentSlitScanWritePos = max_pos - (-currentSlitScanWritePos % max_pos);
+           currentSlitScanWritePos %= max_pos;
+        } else {
+           currentSlitScanWritePos = 0;
+        }
+    } else {
+        currentSlitScanWritePos = ofClamp(currentSlitScanWritePos, 0, max_pos > thickness ? max_pos - thickness : 0);
+    }
+}
+
+void ofApp::drawSlitScanToFbo(const GuiApp::SlitScanSettings& settings) {
+    if (!fbo_slitscan_source_input.isAllocated() || !fbo_slitscan_source_input.getTexture().isAllocated()) return;
+
+    fbo_slitscan.begin();
+
+    ofTexture& sourceTex = fbo_slitscan_source_input.getTexture();
+    float src_w = sourceTex.getWidth();
+    float src_h = sourceTex.getHeight();
+    float dst_w = fbo_slitscan.getWidth();
+    float dst_h = fbo_slitscan.getHeight();
+
+    float normSlitPos = settings.slitPosition;
+    int thickness = settings.slitThickness > 0 ? settings.slitThickness : 1;
+
+    if (settings.slitDirection == 0) {
+        float sx = ofClamp(normSlitPos * src_w - thickness / 2.0f, 0.0f, src_w > thickness ? src_w - thickness : 0.0f);
+        if (src_w > 0 && src_h > 0 && thickness > 0 && dst_h > 0 && currentSlitScanWritePos >= 0 && currentSlitScanWritePos + thickness <= dst_w ) {
+           sourceTex.drawSubsection(sx, 0, thickness, src_h,
+                                    currentSlitScanWritePos, 0, thickness, dst_h);
+        }
+    } else {
+        float sy = ofClamp(normSlitPos * src_h - thickness / 2.0f, 0.0f, src_h > thickness ? src_h - thickness : 0.0f);
+        if (src_w > 0 && src_h > 0 && thickness > 0 && dst_w > 0 && currentSlitScanWritePos >= 0 && currentSlitScanWritePos + thickness <= dst_h) {
+           sourceTex.drawSubsection(0, sy, src_w, thickness,
+                                    0, currentSlitScanWritePos, dst_w, thickness);
+        }
+    }
+    fbo_slitscan.end();
+}
+
 void ofApp::NDI_reciever_setup(string reciever_name){
     auto findSource = [](const string &name_or_url) {
         auto sources = ofxNDI::listSources();

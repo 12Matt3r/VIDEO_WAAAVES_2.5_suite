@@ -93,6 +93,54 @@ public:
     bool videoPlaying = false;
     string loadedVideoPathString = "No video loaded";
 
+    // Particle System
+    struct Particle {
+        ofVec2f pos;
+        ofVec2f vel;
+        ofColor color;
+        float life; // Remaining lifespan in seconds
+        float initialLife;
+        float size;
+    };
+    std::vector<Particle> particles;
+    ofFbo fbo_particles;
+    ofPixels inputSourcePixels; // To store pixels from the selected input source for particles
+
+    // Slit-Scan System
+    ofFbo fbo_slitscan;
+    ofFbo fbo_slitscan_source_input; // To prepare the source texture (e.g., apply delay)
+    std::deque<ofPixels> slitscan_delay_buffer_pixels; // For frame delay using ofPixels
+    ofTexture slitscan_delayed_source_tex; // Temp texture to load delayed pixels for drawing
+    int currentSlitScanWritePos {0}; // Current column/row in fbo_slitscan to write to
+
+    void setupParticleSystem();
+    void updateParticleSystem(const GuiApp::ParticleFeedbackSettings& settings);
+    void spawnParticles(const GuiApp::ParticleFeedbackSettings& settings);
+    void drawParticlesToFbo(const GuiApp::ParticleFeedbackSettings& settings);
+    void getInputSourcePixels(int source_id, const GuiApp::ParticleFeedbackSettings& settings); // This is for particles, might need a separate one for slitscan or make it generic
+
+    void setupSlitScan();
+    void updateSlitScan(const GuiApp::SlitScanSettings& settings);
+    void prepareSlitScanSourceTexture(const GuiApp::SlitScanSettings& settings); // Prepares fbo_slitscan_source_input with current or delayed frame
+    void drawSlitScanToFbo(const GuiApp::SlitScanSettings& settings);
+
+    // Noise Generator System
+    ofFbo fbo_noise;
+    ofShader noiseShader;
+
+    void setupNoiseGenerator();
+    void updateNoiseGenerator(); // Will read settings from gui and call drawNoiseToFbo if needed
+    void drawNoiseToFbo();     // Renders noise into fbo_noise using the shader
+
+    // Pixel Sorting System
+    ofFbo fbo_pixel_sort_output;
+    ofShader pixelSortShader;
+    // Optional: ofFbo fbo_pixel_sort_input_buffer; // If complex source handling/delay is needed later
+
+    void setupPixelSort();
+    void updatePixelSort(); // Placeholder for now, might not be needed if all settings are shader uniforms
+    void drawPixelSortToFbo(ofTexture& sourceTexture, const GuiApp::PixelSortSettings& settings);
+
     void setupVideoPlayer();
     void handleVideoEvents();
     void loadVideoFromFile();

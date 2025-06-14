@@ -104,6 +104,78 @@ public:
     };
     GlobalSettings global_settings;
 
+    struct ParticleFeedbackSettings {{
+        bool enableParticleFeedback {{false}};
+        int inputSource {{0}}; // 0: MainOutput, 1: Cam1, 2: Cam2, 3: NDI, 4: VideoFile, 5: WindowCapture
+        float spawnThreshold {{0.5f}};
+        int maxParticles {{1000}};
+        float particleInitialLife {{2.0f}}; // in seconds
+        float particleInitialSpeed {{50.0f}}; // pixels per second
+        float particleDrag {{0.05f}};
+        float particleSize {{2.0f}};
+        bool enableVelocityFromBrightness {{true}};
+        bool inheritColorFromSpawn {{true}};
+        ofColor particleBaseColor {{ofColor::white}};
+        float noiseForceAmount {{0.0f}};
+        float noiseFieldScale {{0.01f}};
+        float noiseTimeSpeed {{0.1f}};
+        float feedbackMix {{0.1f}}; // How much of particle FBO is blended back
+        // Potential future additions:
+        // bool drawParticleTrails {{false}};
+        // int trailLength {{10}};
+        // float particleRotation {{0.0f}};
+        // float particleRotationSpeed {{0.0f}};
+    }};
+    ParticleFeedbackSettings particle_feedback_settings;
+
+    struct SlitScanSettings {
+        bool enableSlitScan {{false}};
+        int inputSource {{0}}; // 0: MainOutput, 1: Cam1, 2: Cam2, 3: NDI, 4: VideoFile, 5: WindowCapture
+        int slitDirection {{0}}; // 0: Vertical Slit (scans X, accumulates along X), 1: Horizontal Slit (scans Y, accumulates along Y)
+        float slitPosition {{0.5}}; // Normalized (0.0 to 1.0)
+        int slitThickness {{2}}; // In pixels
+        float accumulationSpeed {{1.0}}; // Pixels per frame, can be negative
+        bool wrapAccumulation {{true}};
+        int delayFrames {{0}};
+        float outputMix {{1.0}}; // Blend factor of slit-scan output to main
+        int blendMode {{0}}; // 0: Alpha Blend, 1: Add, 2: Screen (example blend modes)
+    };
+    SlitScanSettings slit_scan_settings;
+
+    struct NoiseGeneratorSettings {
+        bool enableNoise {{false}};
+        int noiseType {{0}}; // 0: Perlin/ofNoise, 1: Simplex (future)
+        float noiseScale {{0.02f}};
+        float noiseTime {{0.0f}};
+        float noiseSpeed {{0.05f}};
+        bool noiseAnimateTime {{true}};
+        int noiseOctaves {{4}};
+        float noisePersistence {{0.5f}};
+        bool noiseColorEnable {{false}};
+        ofColor noiseColor1 {{ofColor::black}};
+        ofColor noiseColor2 {{ofColor::white}};
+        float noiseRangeMin {{0.0f}}; // ofNoise default is 0-1
+        float noiseRangeMax {{1.0f}};
+        bool noiseApplyContrast {{false}};
+        float noiseContrast {{1.0f}};
+        float noiseBrightness {{0.0f}}; // Additive brightness
+    };
+    NoiseGeneratorSettings noise_generator_settings;
+
+    struct PixelSortSettings {
+        bool enablePixelSort {{false}};
+        int inputSource {{0}}; // 0: Main Output (current fbo_draw), 1: Cam1, etc.
+        int sortMode {{0}};    // 0: Horizontal Lines, 1: Vertical Columns
+        int sortCriteria {{0}};// 0: Brightness, 1: Hue, 2: Red, 3: Green, 4: Blue, 5: Luminance
+        float thresholdMin {{0.1f}};
+        float thresholdMax {{0.9f}};
+        bool sortAscending {{true}};
+        // bool smartThresholding {{true}}; // For sorting segments between min/max
+        float effectMix {{1.0f}}; // Blend between original and sorted (0=original, 1=sorted)
+        // int delayFrames {{0}}; // Optional: Delay source before sorting
+    };
+    PixelSortSettings pixel_sort_settings;
+
     std::string loadedVideoPath {"No video loaded"};
     bool videoPlayingState {false}; bool videoLoopingState {true};
     bool loadVideoTrigger {false}; bool playVideoTrigger {false}; bool pauseVideoTrigger {false}; bool stopVideoTrigger {false}; bool loopVideoToggleTrigger {false};
