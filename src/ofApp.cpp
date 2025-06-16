@@ -65,9 +65,7 @@ void ofApp::setupVideoPlayer() {
     if(gui) {
         gui->loadedVideoPath = loadedVideoPathString;
         gui->videoPlayingState = videoPlaying;
-        // Initialize GUI loop state from video player's default (usually OF_LOOP_NONE)
-        // or a desired default like true (OF_LOOP_NORMAL)
-        gui->videoLoopingState = true; // Default to looping
+        gui->videoLoopingState = true;
         videoPlayer.setLoopState(gui->videoLoopingState ? OF_LOOP_NORMAL : OF_LOOP_NONE);
     }
 }
@@ -153,7 +151,6 @@ void ofApp::updateVideoPlayerData() {
     }
 }
 
-// Window Capture Placeholders
 void ofApp::handleWindowCaptureEvents() {
     if (!gui) return;
     if (gui->listWindowsTrigger) { listAvailableWindows(); gui->listWindowsTrigger = false; }
@@ -169,7 +166,6 @@ void ofApp::handleWindowCaptureEvents() {
 }
 void ofApp::listAvailableWindows() {
     if (!gui) return;
-    // Placeholder: In a real app, this would query the OS for window titles.
     gui->availableWindowTitles.clear();
     gui->availableWindowTitles.push_back("Dummy Window 1 (Example)");
     gui->availableWindowTitles.push_back("Another Application (Example)");
@@ -177,7 +173,7 @@ void ofApp::listAvailableWindows() {
     if (gui->availableWindowTitles.empty()) {
         gui->availableWindowTitles.push_back("No windows found");
     }
-    gui->selectedWindowIndex = 0; // Reset selection
+    gui->selectedWindowIndex = 0;
     ofLogNotice("ofApp") << "Placeholder: listAvailableWindows() called.";
 }
 void ofApp::startWindowCapture(int windowIndex) {
@@ -190,7 +186,6 @@ void ofApp::startWindowCapture(int windowIndex) {
         gui->capturedWindowTitleDisplay = "Error: Invalid Index";
     }
     ofLogNotice("ofApp") << "Placeholder: startWindowCapture() for: " << gui->capturedWindowTitleDisplay;
-    // Actual capture implementation would start here (e.g. using ofWindowGrabber or platform specific code)
 }
 void ofApp::stopWindowCapture() {
     if (!gui) return;
@@ -198,14 +193,10 @@ void ofApp::stopWindowCapture() {
     currentCaptureTargetIndex = -1;
     gui->capturedWindowTitleDisplay = "None";
     ofLogNotice("ofApp") << "Placeholder: stopWindowCapture() called.";
-    // Actual capture implementation would stop here
 }
 void ofApp::updateWindowCaptureData() {
     if (!gui) return;
     gui->isWindowCurrentlyCapturing = isCapturingWindow;
-    // If capturing, this is where you'd grab a frame and put it into an ofTexture/ofImage
-    // e.g., if (isCapturingWindow) { /* capturedFrame = grabber.grab(); */ }
-    // Then this texture would be passed to gui->drawOutputWindow or used in ndi_fbo
 }
 
 
@@ -215,12 +206,11 @@ void ofApp::setup() {
     NDI_reciever_setup("Scan Converter");
 
 #ifdef TARGET_OPENGLES
-    shader_mixer.load("shadersES2/shader_mixer"); // Assuming ES2 shaders exist
+    shader_mixer.load("shadersES2/shader_mixer");
     shader_blur.load("shadersES2/shader_blur");
     shader_sharpen.load("shadersES2/shader_sharpen");
 #else
     if(ofIsGLProgrammableRenderer()){
-        // This path might not be used if only GL2 specified. Consider revising shader loading.
         shader_mixer.load("shadersGL3/shader_mixer");
         shader_blur.load("shadersGL3/shader_blur");
         shader_sharpen.load("shadersGL3/shader_sharpen");
@@ -231,12 +221,12 @@ void ofApp::setup() {
     }
 #endif
 
-    fbo_draw.allocate(ofGetWidth(), ofGetHeight(), GL_RGBA); // Added GL_RGBA for alpha
+    fbo_draw.allocate(ofGetWidth(), ofGetHeight(), GL_RGBA);
     fbo_feedback.allocate(ofGetWidth(), ofGetHeight(), GL_RGBA);
     fbo_blur.allocate(ofGetWidth(), ofGetHeight(), GL_RGBA);
     ndi_fbo.allocate(ofGetWidth(), ofGetHeight(), GL_RGBA);
 
-    fbo_feedback.begin(); ofClear(0,0,0,0); fbo_feedback.end(); // Clear with alpha
+    fbo_feedback.begin(); ofClear(0,0,0,0); fbo_feedback.end();
     fbo_draw.begin(); ofClear(0,0,0,0); fbo_draw.end();
     fbo_blur.begin(); ofClear(0,0,0,0); fbo_blur.end();
     ndi_fbo.begin(); ofClear(0,0,0,0); ndi_fbo.end();
@@ -248,18 +238,19 @@ void ofApp::setup() {
 
     tetrahedron_setup();
     setupVideoPlayer();
-    setupParticleSystem(); // Added for particle system
-    isCapturingWindow = false; currentCaptureTargetIndex = -1; // Init window capture state
+    setupParticleSystem();
+    isCapturingWindow = false; currentCaptureTargetIndex = -1;
     setupSlitScan();
     setupNoiseGenerator();
     setupPixelSort();
+    setupReactionDiffusion();
 }
 
 // Particle System Method Implementations
 void ofApp::setupParticleSystem() {
     fbo_particles.allocate(ofGetWidth(), ofGetHeight(), GL_RGBA);
     fbo_particles.begin();
-    ofClear(0, 0, 0, 0); // Clear with alpha
+    ofClear(0, 0, 0, 0);
     fbo_particles.end();
 }
 
@@ -278,16 +269,15 @@ void ofApp::setupNoiseGenerator() {
     fbo_noise.allocate(ofGetWidth(), ofGetHeight(), GL_RGBA);
     fbo_noise.begin(); ofClear(0,0,0,0); fbo_noise.end();
 
-    // Attempt to load shaders, log if error
     if (!noiseShader.load("shadersGL2/noise.vert", "shadersGL2/noise.frag")) {
         ofLogError("ofApp::setupNoiseGenerator") << "Could not load noise shader!";
     }
 }
 
 void ofApp::drawNoiseToFbo() {
-    if (!gui || !noiseShader.isLoaded()) return; // Ensure gui and shader are available
+    if (!gui || !noiseShader.isLoaded()) return;
 
-    const auto& settings = gui->noise_generator_settings; // Alias for convenience
+    const auto& settings = gui->noise_generator_settings;
 
     fbo_noise.begin();
     ofClear(0,0,0,0);
@@ -306,20 +296,20 @@ void ofApp::drawNoiseToFbo() {
     noiseShader.setUniform1f("u_contrast", settings.noiseContrast);
     noiseShader.setUniform1f("u_brightness", settings.noiseBrightness);
 
-    ofDrawRectangle(0, 0, fbo_noise.getWidth(), fbo_noise.getHeight()); // Draw fullscreen quad
+    ofDrawRectangle(0, 0, fbo_noise.getWidth(), fbo_noise.getHeight());
     noiseShader.end();
     fbo_noise.end();
 }
 
 void ofApp::updateNoiseGenerator() {
     if (!gui) return;
-    auto& settings = gui->noise_generator_settings; // Use a reference for direct update
+    auto& settings = gui->noise_generator_settings;
 
     if (settings.enableNoise) {
         if (settings.noiseAnimateTime) {
             settings.noiseTime += settings.noiseSpeed * ofGetLastFrameTime();
         }
-        drawNoiseToFbo(); // Re-render noise to FBO if enabled and params (or time) changed
+        drawNoiseToFbo();
     }
 }
 
@@ -334,8 +324,6 @@ void ofApp::setupPixelSort() {
 
 void ofApp::updatePixelSort() {
     if (!gui || !gui->pixel_sort_settings.enablePixelSort) return;
-    // Currently, all settings are passed as uniforms per frame.
-    // This function could be used if any pre-calculation or state update is needed.
 }
 
 void ofApp::drawPixelSortToFbo(ofTexture& sourceTexture, const GuiApp::PixelSortSettings& settings) {
@@ -344,13 +332,15 @@ void ofApp::drawPixelSortToFbo(ofTexture& sourceTexture, const GuiApp::PixelSort
     fbo_pixel_sort_output.begin();
     ofClear(0,0,0,0);
     pixelSortShader.begin();
-    pixelSortShader.setUniformTexture("u_tex0", sourceTexture, 0); // Pass source texture
+    pixelSortShader.setUniformTexture("u_tex0", sourceTexture, 0);
     pixelSortShader.setUniform2f("u_resolution", sourceTexture.getWidth(), sourceTexture.getHeight());
     pixelSortShader.setUniform1i("u_sortMode", settings.sortMode);
     pixelSortShader.setUniform1i("u_sortCriteria", settings.sortCriteria);
     pixelSortShader.setUniform1f("u_thresholdMin", settings.thresholdMin);
     pixelSortShader.setUniform1f("u_thresholdMax", settings.thresholdMax);
     pixelSortShader.setUniform1i("u_sortAscending", settings.sortAscending ? 1 : 0);
+    pixelSortShader.setUniform1i("u_smartThresholding", settings.smartThresholding ? 1 : 0);
+    pixelSortShader.setUniform1i("u_sortWindowSize", settings.sortWindowSize);
 
     ofSetColor(255);
     sourceTexture.draw(0, 0, fbo_pixel_sort_output.getWidth(), fbo_pixel_sort_output.getHeight());
@@ -359,12 +349,120 @@ void ofApp::drawPixelSortToFbo(ofTexture& sourceTexture, const GuiApp::PixelSort
     fbo_pixel_sort_output.end();
 }
 
+void ofApp::setupReactionDiffusion() {
+    ofFbo::Settings rdFboSettings;
+    rdFboSettings.width = ofGetWidth();
+    rdFboSettings.height = ofGetHeight();
+    rdFboSettings.internalformat = GL_RGBA;
+    rdFboSettings.numSamples = 0;
+    rdFboSettings.useDepth = false;
+    rdFboSettings.useStencil = false;
+    rdFboSettings.textureTarget = GL_TEXTURE_RECTANGLE_ARB;
+
+    for (int i = 0; i < 2; ++i) {
+        fbo_rd[i].allocate(rdFboSettings);
+        fbo_rd[i].begin(); ofClear(0,0,0,255); fbo_rd[i].end();
+    }
+    fbo_rd_display.allocate(rdFboSettings);
+    fbo_rd_display.begin(); ofClear(0,0,0,0); fbo_rd_display.end();
+
+    if (!rdShader.load("shadersGL2/reactiondiffusion.vert", "shadersGL2/reactiondiffusion.frag")) {
+        ofLogError("ofApp::setupReactionDiffusion") << "Could not load reactiondiffusion shader!";
+    }
+    if (!rdDisplayShader.load("shadersGL2/rd_display.vert", "shadersGL2/rd_display.frag")) {
+        ofLogError("ofApp::setupReactionDiffusion") << "Could not load rd_display shader!";
+    }
+    currentRdFbo = 0;
+    if(gui) seedRDCanvas(gui->reaction_diffusion_settings);
+}
+
+void ofApp::seedRDCanvas(const GuiApp::ReactionDiffusionSettings& settings) {
+    currentRdFbo = 0;
+    fbo_rd[0].begin();
+    ofSetColor(255, 0, 0, 255);
+    ofDrawRectangle(0, 0, fbo_rd[0].getWidth(), fbo_rd[0].getHeight());
+
+    if (settings.seedPattern == 0) {
+        ofSetColor(0, 255, 0, 255);
+        ofDrawCircle(fbo_rd[0].getWidth()/2.0f, fbo_rd[0].getHeight()/2.0f, settings.seedRadius);
+    } else if (settings.seedPattern == 1) {
+        for (int i=0; i < (int)(fbo_rd[0].getWidth() * fbo_rd[0].getHeight() * settings.seedNoiseDensity * 0.1f) ; ++i) {
+            float val = (ofRandom(1.0f) < 0.5f) ? 255.0f : 0.0f;
+            ofSetColor(0, (int)val, 0, 255);
+            ofDrawRectangle(ofRandom(fbo_rd[0].getWidth()), ofRandom(fbo_rd[0].getHeight()), 2, 2);
+        }
+    } else if (settings.seedPattern == 2) {
+        for(int y=0; y<fbo_rd[0].getHeight(); ++y) {
+            for(int x=0; x<fbo_rd[0].getWidth(); ++x) {
+                float val = (ofRandom(1.0f) < settings.seedNoiseDensity) ? 255.0f : 0.0f;
+                ofSetColor(0, (int)val, 0, 255);
+                ofDrawRectangle(x,y,1,1);
+            }
+        }
+    } else if (settings.seedPattern == 3 && lastMousePressPos.x >= 0) {
+        ofSetColor(0, 255, 0, 255);
+        ofDrawCircle(lastMousePressPos.x, lastMousePressPos.y, settings.seedRadius);
+        lastMousePressPos.set(-1,-1);
+    }
+    fbo_rd[0].end();
+
+    fbo_rd[1].begin(); ofClear(0,0,0,0); fbo_rd[0].getTexture().draw(0,0); fbo_rd[1].end();
+}
+
+void ofApp::drawRDToDisplayFbo(const GuiApp::ReactionDiffusionSettings& settings) {
+    if (!gui || !rdDisplayShader.isLoaded() || !fbo_rd[currentRdFbo].isAllocated()) return;
+    fbo_rd_display.begin();
+    ofClear(0,0,0,0);
+    rdDisplayShader.begin();
+    rdDisplayShader.setUniformTexture("u_rdStateTex", fbo_rd[currentRdFbo].getTexture(), 0);
+    rdDisplayShader.setUniform2f("u_resolution", fbo_rd_display.getWidth(), fbo_rd_display.getHeight());
+    rdDisplayShader.setUniform1i("u_colorMode", settings.colorMode);
+    rdDisplayShader.setUniform4f("u_colorU", settings.colorU.r/255.0f, settings.colorU.g/255.0f, settings.colorU.b/255.0f, settings.colorU.a/255.0f);
+    rdDisplayShader.setUniform4f("u_colorV", settings.colorV.r/255.0f, settings.colorV.g/255.0f, settings.colorV.b/255.0f, settings.colorV.a/255.0f);
+    rdDisplayShader.setUniform1i("u_smoothDisplay", settings.smoothDisplay ? 1:0);
+    ofDrawRectangle(0,0,fbo_rd_display.getWidth(), fbo_rd_display.getHeight());
+    rdDisplayShader.end();
+    fbo_rd_display.end();
+}
+
+void ofApp::updateReactionDiffusion() {
+    if (!gui || !rdShader.isLoaded()) return;
+    const auto& settings = gui->reaction_diffusion_settings;
+
+    if (settings.clearCanvasTrigger && gui) {
+        seedRDCanvas(settings);
+        gui->reaction_diffusion_settings.clearCanvasTrigger = false;
+    }
+
+    if (settings.enableRD) {
+        for (int i = 0; i < settings.iterationsPerFrame; ++i) {
+            int readFboIdx = currentRdFbo;
+            int writeFboIdx = 1 - currentRdFbo;
+
+            fbo_rd[writeFboIdx].begin();
+            ofClear(0,0,0,0);
+            rdShader.begin();
+            rdShader.setUniformTexture("u_prevState", fbo_rd[readFboIdx].getTexture(), 0);
+            rdShader.setUniform2f("u_resolution", fbo_rd[writeFboIdx].getWidth(), fbo_rd[writeFboIdx].getHeight());
+            rdShader.setUniform1f("u_feedRate", settings.feedRate);
+            rdShader.setUniform1f("u_killRate", settings.killRate);
+            rdShader.setUniform1f("u_diffuseRateU", settings.diffuseRateU);
+            rdShader.setUniform1f("u_diffuseRateV", settings.diffuseRateV);
+            rdShader.setUniform1f("u_timeStep", settings.timeStep);
+            fbo_rd[readFboIdx].getTexture().draw(0,0, fbo_rd[writeFboIdx].getWidth(), fbo_rd[writeFboIdx].getHeight());
+            rdShader.end();
+            fbo_rd[writeFboIdx].end();
+            currentRdFbo = writeFboIdx;
+        }
+        drawRDToDisplayFbo(settings);
+    }
+}
+
 void ofApp::prepareSlitScanSourceTexture(const GuiApp::SlitScanSettings& settings) {
     ofPixels current_frame_pixels;
     bool source_valid = false;
 
-    // 1. Get current frame from selected source into current_frame_pixels
-    if (settings.inputSource == 0) { // Main Output (use fbo_feedback for previous frame)
+    if (settings.inputSource == 0) {
         if (fbo_feedback.isAllocated()) { fbo_feedback.readToPixels(current_frame_pixels); source_valid = true;}
     } else if (settings.inputSource == 1 && cam1.isInitialized() && cam1.isFrameNew()) {
         current_frame_pixels = cam1.getPixels(); source_valid = true;
@@ -374,17 +472,24 @@ void ofApp::prepareSlitScanSourceTexture(const GuiApp::SlitScanSettings& setting
         current_frame_pixels = ndi_pixels; source_valid = true;
     } else if (settings.inputSource == 4 && videoLoaded && videoPlayer.isLoaded() && videoPlayer.isFrameNew()) {
         current_frame_pixels = videoPlayer.getPixels(); source_valid = true;
-    } else if (settings.inputSource == 5) { // Window Capture (Placeholder)
+    } else if (settings.inputSource == 5) {
         if (!current_frame_pixels.isAllocated() || current_frame_pixels.getWidth()!=128 || current_frame_pixels.getHeight()!=128) current_frame_pixels.allocate(128,128,OF_PIXELS_RGBA);
         for(int y_ax=0; y_ax<128; ++y_ax) for(int x_ax=0; x_ax<128; ++x_ax) current_frame_pixels.setColor(x_ax,y_ax,ofColor(ofRandom(255)));
         source_valid = true;
-    } else if (settings.inputSource == 6) { // Noise Generator
+    } else if (settings.inputSource == 6) {
         if (fbo_noise.isAllocated() && fbo_noise.getTexture().isAllocated()) {
-            // Ensure current_frame_pixels is allocated correctly before reading into it
             if (!current_frame_pixels.isAllocated() || current_frame_pixels.getWidth() != fbo_noise.getWidth() || current_frame_pixels.getHeight() != fbo_noise.getHeight() || current_frame_pixels.getPixelFormat() != OF_PIXELS_RGBA) {
-                current_frame_pixels.allocate(fbo_noise.getWidth(), fbo_noise.getHeight(), OF_PIXELS_RGBA); // Assuming RGBA for noise FBO
+                current_frame_pixels.allocate(fbo_noise.getWidth(), fbo_noise.getHeight(), OF_PIXELS_RGBA);
             }
             fbo_noise.getTexture().readToPixels(current_frame_pixels);
+            source_valid = true;
+        }
+    } else if (settings.inputSource == 7) {
+        if (fbo_rd_display.isAllocated() && fbo_rd_display.getTexture().isAllocated()) {
+            if (!current_frame_pixels.isAllocated() || current_frame_pixels.getWidth() != fbo_rd_display.getWidth() || current_frame_pixels.getHeight() != fbo_rd_display.getHeight() || current_frame_pixels.getPixelFormat() != OF_PIXELS_RGBA) {
+                 current_frame_pixels.allocate(fbo_rd_display.getWidth(), fbo_rd_display.getHeight(), OF_PIXELS_RGBA);
+            }
+            fbo_rd_display.getTexture().readToPixels(current_frame_pixels);
             source_valid = true;
         }
     }
@@ -473,15 +578,13 @@ void ofApp::getInputSourcePixels(int source_id, const GuiApp::ParticleFeedbackSe
         if(cam1.isFrameNew() || !inputSourcePixels.isAllocated() || inputSourcePixels.getWidth() != cam1.getWidth() || inputSourcePixels.getHeight() != cam1.getHeight()) {
              if (cam1.getPixels().isAllocated()) {
                 inputSourcePixels = cam1.getPixels();
-                // inputSourcePixels.setNumChannels(cam1.getPixels().getNumChannels()); // Not needed if assigning directly
                 success = true;
              }
-        } else if (inputSourcePixels.isAllocated()) { success = true; } // Use existing if no new frame
+        } else if (inputSourcePixels.isAllocated()) { success = true; }
     } else if (source_id == 2 && cam2.isInitialized()) {
         if(cam2.isFrameNew() || !inputSourcePixels.isAllocated() || inputSourcePixels.getWidth() != cam2.getWidth() || inputSourcePixels.getHeight() != cam2.getHeight()) {
             if (cam2.getPixels().isAllocated()) {
                 inputSourcePixels = cam2.getPixels();
-                // inputSourcePixels.setNumChannels(cam2.getPixels().getNumChannels());
                 success = true;
             }
         } else if (inputSourcePixels.isAllocated()) { success = true; }
@@ -492,11 +595,10 @@ void ofApp::getInputSourcePixels(int source_id, const GuiApp::ParticleFeedbackSe
         if(videoPlayer.isFrameNew() || !inputSourcePixels.isAllocated() || inputSourcePixels.getWidth() != videoPlayer.getWidth() || inputSourcePixels.getHeight() != videoPlayer.getHeight()) {
             if (videoPlayer.getPixels().isAllocated()) {
                 inputSourcePixels = videoPlayer.getPixels();
-                // inputSourcePixels.setNumChannels(videoPlayer.getPixels().getNumChannels());
                 success = true;
             }
         } else if (inputSourcePixels.isAllocated()) { success = true; }
-    } else if (source_id == 5) { // Window Capture (Placeholder - generates random noise for now)
+    } else if (source_id == 5) {
         readWidth = 128; readHeight = 128;
         if (!inputSourcePixels.isAllocated() || inputSourcePixels.getWidth() != readWidth || inputSourcePixels.getHeight() != readHeight) {
             inputSourcePixels.allocate(readWidth, readHeight, OF_PIXELS_RGBA);
@@ -507,7 +609,7 @@ void ofApp::getInputSourcePixels(int source_id, const GuiApp::ParticleFeedbackSe
             }
         }
         success = true;
-    } else if (source_id == 6) { // Noise Generator
+    } else if (source_id == 6) {
         if (fbo_noise.isAllocated()) {
             readWidth = fbo_noise.getWidth(); readHeight = fbo_noise.getHeight();
             if (!inputSourcePixels.isAllocated() || inputSourcePixels.getWidth() != readWidth || inputSourcePixels.getHeight() != readHeight ||
@@ -516,6 +618,17 @@ void ofApp::getInputSourcePixels(int source_id, const GuiApp::ParticleFeedbackSe
                 inputSourcePixels.allocate(readWidth, readHeight, fbo_noise.getTexture().getTextureData().glInternalFormat == GL_RGBA ? OF_PIXELS_RGBA : OF_PIXELS_RGB);
             }
             fbo_noise.readToPixels(inputSourcePixels);
+            success = true;
+        }
+    } else if (source_id == 7) {
+        if (fbo_rd_display.isAllocated()) {
+            readWidth = fbo_rd_display.getWidth(); readHeight = fbo_rd_display.getHeight();
+             if (!inputSourcePixels.isAllocated() || inputSourcePixels.getWidth() != readWidth || inputSourcePixels.getHeight() != readHeight ||
+                (fbo_rd_display.getTexture().getTextureData().glInternalFormat == GL_RGBA && inputSourcePixels.getPixelFormat() != OF_PIXELS_RGBA) ||
+                (fbo_rd_display.getTexture().getTextureData().glInternalFormat != GL_RGBA && inputSourcePixels.getPixelFormat() != OF_PIXELS_RGB) ) {
+                inputSourcePixels.allocate(readWidth, readHeight, fbo_rd_display.getTexture().getTextureData().glInternalFormat == GL_RGBA ? OF_PIXELS_RGBA : OF_PIXELS_RGB);
+            }
+            fbo_rd_display.readToPixels(inputSourcePixels);
             success = true;
         }
     }
@@ -533,12 +646,12 @@ void ofApp::spawnParticles(const GuiApp::ParticleFeedbackSettings& settings) {
     if (!inputSourcePixels.isAllocated() || inputSourcePixels.getWidth() == 0) return;
 
     float targetFrameRate = ofGetTargetFrameRate();
-    if (targetFrameRate <= 0) targetFrameRate = 60.0f; // Default if target is 0 or unlimited
+    if (targetFrameRate <= 0) targetFrameRate = 60.0f;
 
     float spawn_rate_per_second = settings.particleInitialLife > 0.01f ? (settings.maxParticles / settings.particleInitialLife) : (settings.maxParticles / 0.01f) ;
     int num_to_spawn_this_frame = static_cast<int>(spawn_rate_per_second / targetFrameRate);
 
-    if (num_to_spawn_this_frame < 1 && settings.maxParticles > 0) { // Probabilistic spawn for low rates
+    if (num_to_spawn_this_frame < 1 && settings.maxParticles > 0) {
         if (ofRandom(1.0f) < (spawn_rate_per_second / targetFrameRate)) {
             num_to_spawn_this_frame = 1;
         }
@@ -599,13 +712,11 @@ void ofApp::updateParticleSystem(const GuiApp::ParticleFeedbackSettings& setting
                 it->vel.y += noise_val_y * settings.noiseForceAmount * dt;
             }
 
-            // Apply drag more consistently regardless of framerate
-            float dragFactor = 1.0f - (settings.particleDrag * dt * 60.0f); // Assuming drag is "per 1/60th second"
-            if (dragFactor < 0) dragFactor = 0; // Don't reverse velocity
+            float dragFactor = 1.0f - (settings.particleDrag * dt * 60.0f);
+            if (dragFactor < 0) dragFactor = 0;
             it->vel *= dragFactor;
             it->pos += it->vel * dt;
 
-            // Screen wrap
             if (it->pos.x < 0) it->pos.x += ofGetWidth(); else if (it->pos.x >= ofGetWidth()) it->pos.x -= ofGetWidth();
             if (it->pos.y < 0) it->pos.y += ofGetHeight(); else if (it->pos.y >= ofGetHeight()) it->pos.y -= ofGetHeight();
 
@@ -643,7 +754,7 @@ void ofApp::drawParticlesToFbo(const GuiApp::ParticleFeedbackSettings& settings)
 void ofApp::update() {
     cam1.update(); cam2.update();
     midibiz();
-    NDI_reciever_update(); // This now also handles video player drawing to ndi_fbo
+    NDI_reciever_update();
     lfo_update();
 
     handleVideoEvents();
@@ -657,7 +768,7 @@ void ofApp::update() {
         updateParticleSystem(gui->particle_feedback_settings);
     } else if (particles.size() > 0) {
         particles.clear();
-        if(fbo_particles.isAllocated()){ // Ensure fbo is allocated before clearing
+        if(fbo_particles.isAllocated()){
             fbo_particles.begin();
             ofClear(0,0,0,0);
             fbo_particles.end();
@@ -668,14 +779,11 @@ void ofApp::update() {
         prepareSlitScanSourceTexture(gui->slit_scan_settings);
         updateSlitScan(gui->slit_scan_settings);
     } else {
-        // Optional: Clear slit-scan FBO or reset position when disabled
-        // fbo_slitscan.begin(); ofClear(0,0,0,0); fbo_slitscan.end();
-        // currentSlitScanWritePos = 0;
-        // slitscan_delay_buffer_pixels.clear(); // Clear delay buffer
     }
 
     updateNoiseGenerator();
     updatePixelSort();
+    updateReactionDiffusion();
 
     if(gui && gui->global_settings.framebuffer_clear_trigger){
         for(int i=0;i<fbob_const;i++){ pastFrames[i].begin(); ofClear(0,0,0,255); pastFrames[i].end(); }
@@ -684,35 +792,22 @@ void ofApp::update() {
     }
      if(gui && gui->global_settings.control_reset_trigger){
         ofLogNotice("ofApp") << "Control Reset Triggered (logic not implemented in detail)";
-        // Here you would reset all relevant variables in ofApp and GuiApp to defaults
         gui->global_settings.control_reset_trigger = false;
     }
 }
 
 void ofApp::draw() {
     fbo_draw.begin();
-    ofClear(0,0,0,0); // Clear with alpha for proper blending if video/NDI is not full screen
+    ofClear(0,0,0,0);
 
     shader_mixer.begin();
     fbo_feedback.draw(0,0);
 
-    // ndi_fbo contains video if playing, or NDI input.
-    // If isCapturingWindow is true, it could also contain the window capture.
-    // This logic needs to be in NDI_reciever_update or a new function.
     shader_mixer.setUniformTexture("ndi", ndi_fbo.getTexture(), 1);
     shader_mixer.setUniformTexture("cam1", cam1.getTexture(), 2);
     shader_mixer.setUniformTexture("cam2", cam2.getTexture(), 3);
 
-    if (!gui) { shader_mixer.end(); fbo_draw.end(); if(gui) gui->drawOutputWindow(&fbo_draw.getTexture()); return; } // Early exit if gui is null
-
-    // Pass videoPlayer texture to shader if loaded, otherwise pass a black texture or cam1/cam2 as fallback
-    // This specific uniform "videoSource" might not be used if ndi_fbo handles video.
-    // if (videoLoaded && videoPlayer.isAllocated()) {
-    //      shader_mixer.setUniformTexture("videoSource", videoPlayer.getTexture(), 10);
-    // } else {
-    //      shader_mixer.setUniformTexture("videoSource", cam1.getTexture(), 10);
-    // }
-    // shader_mixer.setUniform1i("useVideoSource", (videoLoaded && videoPlayer.isAllocated()) ? 1 : 0);
+    if (!gui) { shader_mixer.end(); fbo_draw.end(); if(gui) gui->drawOutputWindow(&fbo_draw.getTexture()); return; }
 
     shader_mixer.setUniformTexture("fb0",pastFrames[(abs(framedelayoffset-fbob_const-gui->feedback_settings[0].delay_amount-(int)(fbob_const*c8))-abs((int)(fbob_const*lfo(gui->feedback_settings[0].delay_lfo.amp,fb0_theta_delay,0))))-1)%fbob_const].getTexture(),4);
     shader_mixer.setUniformTexture("fb1",pastFrames[(abs(framedelayoffset-fbob_const-gui->feedback_settings[1].delay_amount-(int)(fbob_const*c21))-abs((int)(fbob_const*lfo(gui->feedback_settings[1].delay_lfo.amp,fb1_theta_delay,0))))-1)%fbob_const].getTexture(),5);
@@ -726,7 +821,6 @@ void ofApp::draw() {
     ofVec3f hue_x_params_vec;
     ofVec3f fb_modswitch_vec;
 
-    // fb0
     shader_mixer.setUniform1f("fb0lumakeyvalue", gui->feedback_settings[0].key_value+c6+lfo(gui->feedback_settings[0].lumakeyvalue_lfo.amp,fb0_theta_lumakeyvalue,0));
     shader_mixer.setUniform1f("fb0lumakeythresh", gui->feedback_settings[0].key_threshold+lfo(gui->feedback_settings[0].lumakeythreshold_lfo.amp,fb0_theta_lumakeythreshold,0));
     shader_mixer.setUniform1f("fb0blend", gui->feedback_settings[0].mix+lfo(gui->feedback_settings[0].mix_lfo.amp,fb0_theta_mix,0)+c7*2.0f);
@@ -748,7 +842,6 @@ void ofApp::draw() {
     shader_mixer.setUniform1f("tex_fb0_rotate",(gui->feedback_settings[0].tex_rotate));
     ofVec2f fb0_texmod_logic_vec_shader; if(gui->feedback_settings[0].texmod_select==1){ fb0_texmod_logic_vec_shader.set(1,0); } else if(gui->feedback_settings[0].texmod_select==2){ fb0_texmod_logic_vec_shader.set(0,1); } else {fb0_texmod_logic_vec_shader.set(0,0);} shader_mixer.setUniform2f("fb0_texmod_logic",fb0_texmod_logic_vec_shader);
 
-    // fb1
     shader_mixer.setUniform1f("fb1lumakeyvalue", gui->feedback_settings[1].key_value+c19+lfo(gui->feedback_settings[1].lumakeyvalue_lfo.amp,fb1_theta_lumakeyvalue,0));
     shader_mixer.setUniform1f("fb1lumakeythresh", gui->feedback_settings[1].key_threshold+lfo(gui->feedback_settings[1].lumakeythreshold_lfo.amp,fb1_theta_lumakeythreshold,0));
     shader_mixer.setUniform1f("fb1blend", gui->feedback_settings[1].mix+lfo(gui->feedback_settings[1].mix_lfo.amp,fb1_theta_mix,0)+c20*2.0f);
@@ -770,7 +863,6 @@ void ofApp::draw() {
     shader_mixer.setUniform1f("tex_fb1_rotate",(gui->feedback_settings[1].tex_rotate));
     ofVec2f fb1_texmod_logic_vec_shader; if(gui->feedback_settings[1].texmod_select==1){ fb1_texmod_logic_vec_shader.set(1,0); } else if(gui->feedback_settings[1].texmod_select==2){ fb1_texmod_logic_vec_shader.set(0,1); }  else {fb1_texmod_logic_vec_shader.set(0,0);} shader_mixer.setUniform2f("fb1_texmod_logic",fb1_texmod_logic_vec_shader);
 
-    // fb2
     shader_mixer.setUniform1f("fb2lumakeyvalue", gui->feedback_settings[2].key_value+lfo(gui->feedback_settings[2].lumakeyvalue_lfo.amp,fb2_theta_lumakeyvalue,0));
     shader_mixer.setUniform1f("fb2lumakeythresh", gui->feedback_settings[2].key_threshold+lfo(gui->feedback_settings[2].lumakeythreshold_lfo.amp,fb2_theta_lumakeythreshold,0));
     shader_mixer.setUniform1f("fb2blend", gui->feedback_settings[2].mix+lfo(gui->feedback_settings[2].mix_lfo.amp,fb2_theta_mix,0));
@@ -792,7 +884,6 @@ void ofApp::draw() {
     shader_mixer.setUniform1f("tex_fb2_rotate",(gui->feedback_settings[2].tex_rotate));
     ofVec2f fb2_texmod_logic_vec_shader; if(gui->feedback_settings[2].texmod_select==1){ fb2_texmod_logic_vec_shader.set(1,0); } else if(gui->feedback_settings[2].texmod_select==2){ fb2_texmod_logic_vec_shader.set(0,1); } else {fb2_texmod_logic_vec_shader.set(0,0);} shader_mixer.setUniform2f("fb2_texmod_logic",fb2_texmod_logic_vec_shader);
 
-    // fb3
     shader_mixer.setUniform1f("fb3lumakeyvalue", gui->feedback_settings[3].key_value+lfo(gui->feedback_settings[3].lumakeyvalue_lfo.amp,fb3_theta_lumakeyvalue,0));
     shader_mixer.setUniform1f("fb3lumakeythresh", gui->feedback_settings[3].key_threshold+lfo(gui->feedback_settings[3].lumakeythreshold_lfo.amp,fb3_theta_lumakeythreshold,0));
     shader_mixer.setUniform1f("fb3blend", gui->feedback_settings[3].mix+lfo(gui->feedback_settings[3].mix_lfo.amp,fb3_theta_mix,0));
@@ -997,6 +1088,16 @@ void ofApp::draw() {
         }
     }
     // Now fbo_draw contains the (potentially) pixel-sorted image, ready for blur/sharpen
+
+    if (gui && gui->reaction_diffusion_settings.enableRD && fbo_rd_display.isAllocated()) {
+        fbo_draw.begin(); // Ensure we are drawing to fbo_draw
+        ofEnableBlendMode(OF_BLENDMODE_ALPHA);
+        ofSetColor(255, 255, 255, (int)(gui->reaction_diffusion_settings.outputMix * 255.0f));
+        fbo_rd_display.draw(0, 0, fbo_draw.getWidth(), fbo_draw.getHeight());
+        ofDisableBlendMode();
+        ofSetColor(255);
+        fbo_draw.end(); // End fbo_draw here if it was opened
+    }
 
     shader_blur.begin();
     fbo_draw.draw(0,0);
@@ -1470,6 +1571,13 @@ void ofApp::newMidiMessage(ofxMidiMessage& msg) {
 void ofApp::keyReleased(int key) {}
 void ofApp::mouseMoved(int x, int y ){}
 void ofApp::mouseDragged(int x, int y, int button){}
-void ofApp::mousePressed(int x, int y, int button) {}
+void ofApp::mousePressed(int x, int y, int button) {
+   if (gui && gui->reaction_diffusion_settings.enableRD && gui->reaction_diffusion_settings.seedPattern == 3) {
+       lastMousePressPos.set(x,y);
+       if(gui) gui->reaction_diffusion_settings.clearCanvasTrigger = true;
+   }
+}
 void ofApp::mouseReleased() {}
 ```
+
+[end of src/ofApp.cpp]

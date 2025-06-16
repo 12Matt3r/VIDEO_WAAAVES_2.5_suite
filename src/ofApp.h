@@ -141,6 +141,19 @@ public:
     void updatePixelSort(); // Placeholder for now, might not be needed if all settings are shader uniforms
     void drawPixelSortToFbo(ofTexture& sourceTexture, const GuiApp::PixelSortSettings& settings);
 
+    // Reaction-Diffusion System
+    ofFbo fbo_rd[2]; // Ping-pong FBOs
+    ofFbo fbo_rd_display; // For final colored output before mixing
+    ofShader rdShader;
+    ofShader rdDisplayShader;
+    int currentRdFbo {0};
+    ofVec2f lastMousePressPos {-1,-1}; // For mouse seeding
+
+    void setupReactionDiffusion();
+    void updateReactionDiffusion(); // Reads settings from gui
+    void seedRDCanvas(const GuiApp::ReactionDiffusionSettings& settings);
+    void drawRDToDisplayFbo(const GuiApp::ReactionDiffusionSettings& settings);
+
     void setupVideoPlayer();
     void handleVideoEvents();
     void loadVideoFromFile();
